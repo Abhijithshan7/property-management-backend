@@ -2,12 +2,82 @@ from flask import Blueprint, request, jsonify
 from app.db import get_connection
 import os
 from werkzeug.utils import secure_filename
+import re
+
+def validate_gst_number(gst_number):
+    """
+    Validate GST number format.
+    Format: XXAAAAA0000A1Z5
+    - First 2 characters: State code (01-37)
+    - Next 10 characters: PAN number
+    - 12th character: Entity type (1-9)
+    - 13th character: Z
+    - 14th character: Checksum
+    """
+    # Remove any spaces or special characters
+    gst_number = gst_number.replace(' ', '').upper()
+    
+    # Check if length is correct (15 characters)
+    if len(gst_number) != 15:
+        return False
+    
+    # Check state code (first 2 digits)
+    if not gst_number[:2].isdigit() or int(gst_number[:2]) < 1 or int(gst_number[:2]) > 37:
+        return False
+    
+    # Check PAN-like part (next 10 characters)
+    if not gst_number[2:12].isalnum():
+        return False
+    
+    # Check entity type (12th character)
+    if not gst_number[11].isdigit() or int(gst_number[11]) < 1 or int(gst_number[11]) > 9:
+        return False
+    
+    # Check 13th character is Z
+    if gst_number[12] != 'Z':
+        return False
+    
+    # Check last character is alphanumeric
+    if not gst_number[13].isalnum():
+        return False
+    
+    return True
+
+def validate_pan_number(pan_number):
+    """
+    Validate PAN number format.
+    Format: ABCDE1234E
+    - First 5 characters: Uppercase letters
+    - Next 4 characters: Digits
+    - Last character: Uppercase letter
+    """
+    # Remove any spaces and convert to uppercase
+    pan_number = pan_number.replace(' ', '').upper()
+    
+    # Check if length is correct
+    if len(pan_number) != 10:
+        return False
+    
+    # Check first 5 characters are letters
+    if not pan_number[:5].isalpha():
+        return False
+    
+    # Check next 4 characters are digits
+    if not pan_number[5:9].isdigit():
+        return False
+    
+    # Check last character is a letter
+    if not pan_number[9].isalpha():
+        return False
+    
+    return True
 
 api_blueprint = Blueprint('api', __name__)
 
 # Company CRUD
 @api_blueprint.route('/api/companies', methods=['GET'])
 def get_companies():
+    """Get all companies"""
     conn = get_connection()
     cur = conn.cursor()
     
@@ -20,13 +90,13 @@ def get_companies():
     formatted_companies = []
     for company in companies:
         formatted_companies.append({
-            "id": company[0],
-            "companyName": company[1],
-            "panNumber": company[2],
-            "gstNumber": company[3],
-            "mcaNumber": company[4],
-            "address": company[5],
-            "description": company[6],
+            'company_id': company[0],
+            'company_name': company[1],
+            'pan_number': company[2],
+            'gst_number': company[3],
+            'mca_reg_details': company[4],
+            'address': company[5],
+            'notes': company[6],
             "createdAt": company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
             "updatedAt": company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
         })
@@ -35,69 +105,129 @@ def get_companies():
 
 @api_blueprint.route('/api/companies/<int:company_id>', methods=['GET'])
 def get_company(company_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    
-    cur.execute("SELECT * FROM companies WHERE company_id = %s", (company_id,))
-    company = cur.fetchone()
-    
-    cur.close()
-    conn.close()
-    
-    if company:
-        return jsonify({
-            "id": company[0],
-            "companyName": company[1],
-            "panNumber": company[2],
-            "gstNumber": company[3],
-            "mcaNumber": company[4],
-            "address": company[5],
-            "description": company[6],
-            "createdAt": company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
-            "updatedAt": company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
-        })
-    return jsonify({'error': 'Company not found'}), 404
-
-@api_blueprint.route('/api/companies', methods=['POST'])
-def create_company():
-    data = request.json
-    
-    required_fields = ['company_name', 'pan_number']
-    if not all(field in data for field in required_fields):
-        return jsonify({'error': 'Missing required fields'}), 400
-    
+    """Get a specific company by ID"""
     conn = get_connection()
     cur = conn.cursor()
     
     try:
-        cur.execute("""
-            INSERT INTO companies (company_name, pan_number, gst_number, 
-            mca_reg_details, address, notes)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING *
-        """, (
-            data['company_name'],
-            data['pan_number'],
-            data.get('gst_number'),
-            data.get('mca_reg_details'),
-            data.get('address'),
-            data.get('notes')
-        ))
-        
+        cur.execute("SELECT * FROM companies WHERE company_id = %s", (company_id,))
         company = cur.fetchone()
-        conn.commit()
         
-        return jsonify(company), 201
+        if not company:
+            return jsonify({'error': 'Company not found'}), 404
+            
+        return jsonify({
+            'company_id': company[0],
+            'company_name': company[1],
+            'pan_number': company[2],
+            'gst_number': company[3],
+            'mca_reg_details': company[4],
+            'address': company[5],
+            'notes': company[6],
+            'created_at': company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
+            'updated_at': company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
+        })
+        
     except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': str(e)}), 500
     finally:
         cur.close()
         conn.close()
 
+@api_blueprint.route('/api/companies', methods=['POST'])
+def create_company():
+    """Create a new company"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['company_name', 'pan_number']
+        if not all(field in data for field in required_fields):
+            return jsonify({'error': 'Missing required fields: ' + ', '.join(required_fields)}), 400
+        
+        # Validate GST number format
+        gst_number = data.get('gst_number')
+        if gst_number:
+            if not validate_gst_number(gst_number):
+                return jsonify({
+                    'error': 'Invalid GST number format',
+                    'details': 'GST number should be in the format: XXAAAAA0000A1Z5',
+                    'example': '27AAAAA0000A1Z5'
+                }), 400
+        
+        # Validate PAN number format
+        pan_number = data.get('pan_number')
+        if not pan_number or not validate_pan_number(pan_number):
+            return jsonify({
+                'error': 'Invalid PAN number format',
+                'details': 'PAN number should be in the format: ABCDE1234E',
+                'example': 'ABCDE1234E'
+            }), 400
+        
+        # Check if company already exists
+        conn = get_connection()
+        cur = conn.cursor()
+        
+        try:
+            # Check if company name already exists
+            cur.execute("SELECT company_id FROM companies WHERE company_name = %s", (data['company_name'],))
+            if cur.fetchone():
+                return jsonify({'error': 'Company with this name already exists'}), 400
+                
+            # Check if PAN number already exists
+            cur.execute("SELECT company_id FROM companies WHERE pan_number = %s", (data['pan_number'],))
+            if cur.fetchone():
+                return jsonify({'error': 'PAN number already exists'}), 400
+                
+            # Insert new company
+            cur.execute("""
+                INSERT INTO companies (company_name, pan_number, gst_number, 
+                mca_reg_details, address, notes)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING *
+            """, (
+                data['company_name'],
+                data['pan_number'],
+                data.get('gst_number'),
+                data.get('mca_reg_details'),
+                data.get('address'),
+                data.get('notes')
+            ))
+            
+            new_company = cur.fetchone()
+            conn.commit()
+            
+            return jsonify({
+                'company_id': new_company[0],
+                'company_name': new_company[1],
+                'pan_number': new_company[2],
+                'gst_number': new_company[3],
+                'mca_reg_details': new_company[4],
+                'address': new_company[5],
+                'notes': new_company[6],
+                'created_at': new_company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
+                'updated_at': new_company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
+            }), 201
+            
+        except Exception as e:
+            conn.rollback()
+            return jsonify({'error': str(e)}), 500
+        finally:
+            cur.close()
+            conn.close()
+            
+    except Exception as e:
+        return jsonify({'error': 'Bad request: ' + str(e)}), 400
+
 @api_blueprint.route('/api/companies/<int:company_id>', methods=['PUT'])
 def update_company(company_id):
-    data = request.json
+    """Update an existing company"""
+    data = request.get_json()
+    
+    # Validate GST number if provided
+    gst_number = data.get('gst_number')
+    if gst_number and not validate_gst_number(gst_number):
+        return jsonify({'error': 'Invalid GST number format. Format should be: XXAAAAA0000A1Z5'}), 400
     
     conn = get_connection()
     cur = conn.cursor()
@@ -134,37 +264,54 @@ def update_company(company_id):
         update_query = f"UPDATE companies SET {', '.join(update_fields)} WHERE company_id = %s RETURNING *"
         cur.execute(update_query, params)
         
-        company = cur.fetchone()
+        updated_company = cur.fetchone()
+        
+        if not updated_company:
+            return jsonify({'error': 'Company not found'}), 404
+            
         conn.commit()
         
-        if company:
-            return jsonify(company)
-        return jsonify({'error': 'Company not found'}), 404
+        return jsonify({
+            'company_id': updated_company[0],
+            'company_name': updated_company[1],
+            'pan_number': updated_company[2],
+            'gst_number': updated_company[3],
+            'mca_reg_details': updated_company[4],
+            'address': updated_company[5],
+            'notes': updated_company[6],
+            'created_at': updated_company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
+            'updated_at': updated_company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
+        })
         
     except Exception as e:
         conn.rollback()
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': str(e)}), 500
     finally:
         cur.close()
         conn.close()
 
 @api_blueprint.route('/api/companies/<int:company_id>', methods=['DELETE'])
 def delete_company(company_id):
+    """Delete a company"""
+    if company_id is None:
+        return jsonify({'error': 'Company ID is required'}), 400
+    
     conn = get_connection()
     cur = conn.cursor()
     
     try:
-        cur.execute("DELETE FROM companies WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM companies WHERE company_id = %s RETURNING company_id", (company_id,))
+        deleted_id = cur.fetchone()
         
-        if cur.rowcount == 0:
+        if not deleted_id:
             return jsonify({'error': 'Company not found'}), 404
             
         conn.commit()
-        return '', 204
+        return jsonify({'message': 'Company deleted successfully'}), 200
         
     except Exception as e:
         conn.rollback()
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': str(e)}), 500
     finally:
         cur.close()
         conn.close()
