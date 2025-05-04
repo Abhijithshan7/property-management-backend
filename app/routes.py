@@ -17,7 +17,21 @@ def get_companies():
     cur.close()
     conn.close()
     
-    return jsonify(companies)
+    formatted_companies = []
+    for company in companies:
+        formatted_companies.append({
+            "id": company[0],
+            "companyName": company[1],
+            "panNumber": company[2],
+            "gstNumber": company[3],
+            "mcaNumber": company[4],
+            "address": company[5],
+            "description": company[6],
+            "createdAt": company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
+            "updatedAt": company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
+        })
+    
+    return jsonify(formatted_companies)
 
 @api_blueprint.route('/api/companies/<int:company_id>', methods=['GET'])
 def get_company(company_id):
@@ -31,7 +45,17 @@ def get_company(company_id):
     conn.close()
     
     if company:
-        return jsonify(company)
+        return jsonify({
+            "id": company[0],
+            "companyName": company[1],
+            "panNumber": company[2],
+            "gstNumber": company[3],
+            "mcaNumber": company[4],
+            "address": company[5],
+            "description": company[6],
+            "createdAt": company[7].strftime("%a, %d %b %Y %H:%M:%S %Z"),
+            "updatedAt": company[8].strftime("%a, %d %b %Y %H:%M:%S %Z")
+        })
     return jsonify({'error': 'Company not found'}), 404
 
 @api_blueprint.route('/api/companies', methods=['POST'])
