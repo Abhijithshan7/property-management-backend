@@ -147,22 +147,22 @@ def create_company():
         
         # Validate GST number format
         gst_number = data.get('gst_number')
-        if gst_number:
-            if not validate_gst_number(gst_number):
-                return jsonify({
-                    'error': 'Invalid GST number format',
-                    'details': 'GST number should be in the format: XXAAAAA0000A1Z5',
-                    'example': '27AAAAA0000A1Z5'
-                }), 400
+        # if gst_number:
+        #     if not validate_gst_number(gst_number):
+        #         return jsonify({
+        #             'error': 'Invalid GST number format',
+        #             'details': 'GST number should be in the format: XXAAAAA0000A1Z5',
+        #             'example': '27AAAAA0000A1Z5'
+        #         }), 400
         
         # Validate PAN number format
         pan_number = data.get('pan_number')
-        if not pan_number or not validate_pan_number(pan_number):
-            return jsonify({
-                'error': 'Invalid PAN number format',
-                'details': 'PAN number should be in the format: ABCDE1234E',
-                'example': 'ABCDE1234E'
-            }), 400
+        # if not pan_number or not validate_pan_number(pan_number):
+        #     return jsonify({
+        #         'error': 'Invalid PAN number format',
+        #         'details': 'PAN number should be in the format: ABCDE1234E',
+        #         'example': 'ABCDE1234E'
+        #     }), 400
         
         # Check if company already exists
         conn = get_connection()
@@ -226,8 +226,8 @@ def update_company(company_id):
     
     # Validate GST number if provided
     gst_number = data.get('gst_number')
-    if gst_number and not validate_gst_number(gst_number):
-        return jsonify({'error': 'Invalid GST number format. Format should be: XXAAAAA0000A1Z5'}), 400
+    # if gst_number and not validate_gst_number(gst_number):
+    #     return jsonify({'error': 'Invalid GST number format. Format should be: XXAAAAA0000A1Z5'}), 400
     
     conn = get_connection()
     cur = conn.cursor()
